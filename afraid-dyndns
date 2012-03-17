@@ -156,7 +156,7 @@ sub getextip {
 		get("http://ip.arix.com/");
 		}; 
      
-    chomp($ip = $_->()) && return $ip for @getextip;
+    chomp($ip = $_->()), $ip && return $ip for @getextip;
     }
 
 #
