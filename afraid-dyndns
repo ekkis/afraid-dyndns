@@ -1,4 +1,6 @@
 #!/usr/bin/perl
+use strict;
+use warnings;
 
 #
 #   afraid-dyndns - a Dynamic DNS client for the afraid.org free service
@@ -29,6 +31,7 @@ use XML::Simple;
 use Getopt::Long;
 
 Getopt::Long::Configure("no_ignore_case");
+my %args = ();
 $args{"debug|D"} = "Debug mode";
 $args{"quiet"} = "Suppresses normal output";
 $args{"help"} = "Display syntax";
@@ -45,11 +48,11 @@ if ($ARGV{help}) {
 
 # afraid.org listing of urls
 
-$afraid = "http://freedns.afraid.org/api/?action=getdyndns&sha=%s&style=xml";
-($VER = substr q$Revision: 2342 $, 10) =~ s/\s+$//;
-$CONF = "/etc/afraid-dyndns.conf";
-($ME = $0) =~ s|.*/||;
-$hostname = shift;
+my $afraid = "http://freedns.afraid.org/api/?action=getdyndns&sha=%s&style=xml";
+(my $VER = substr q$Revision: 2342 $, 10) =~ s/\s+$//;
+my $CONF = "/etc/afraid-dyndns.conf";
+(my $ME = $0) =~ s|.*/||;
+my $hostname = shift;
 
 # get working parameters
 
@@ -80,9 +83,9 @@ if ($ARGV{LogFile} && !$ARGV{debug}) {
 # get external and cached IP addresses
 #
 
-$extip = getextip();
+my $extip = getextip();
 die "Failed fetching IP address!" unless $extip;
-$intip = readfile($ARGV{CacheFile});	# internal address (cached)
+my $intip = readfile($ARGV{CacheFile});	# internal address (cached)
 chomp $intip;
 
 #
@@ -94,15 +97,15 @@ if ($extip eq $intip) {
 } else {
 	echo("Address changed: $intip => $extip");
 
-	$xml = get(sprintf($afraid, $ARGV{AccountHash}));
+	my $xml = get(sprintf($afraid, $ARGV{AccountHash}));
 	die "Failed fetching update head!" unless $xml;
-	$o = XMLin($xml, ForceArray => ["item"]);
+	my $o = XMLin($xml, ForceArray => ["item"]);
 	for (@{$o->{item}}) {
 		next if $hostname && $_->{host} !~ /$hostname/;
 		debug("- $_->{host}");
 		get($_->{url}) unless $ARGV{debug};
 		}
-	writefile($ARGV{CacheFile}, $extip);
+	&writefile($ARGV{CacheFile}, $extip);
 
 	if ($ARGV{Notify}) {
 		eval {
@@ -116,7 +119,7 @@ if ($extip eq $intip) {
 			echo();
 			}
 		else {
-			$msg = MIME::Lite->new(
+			my $msg = MIME::Lite->new(
 				To => $ARGV{Notify},
 				Subject => "IP address change",
 				Data => "Dynamic DNS has been refreshed: $intip => $extip"
@@ -128,8 +131,16 @@ if ($extip eq $intip) {
 
 exit;
 
+#
+#   Synopsis:
+#       queries a list of IP providers in order, returning
+#		a value from the first available.  The value returned
+#		is the system's external IP address
+#
+
 sub getextip {
 	my $i = 0;
+	my @getextip = ();
 	$getextip[$i++] = sub {
 		$_ = get("http://freedns.afraid.org:8080/dynamic/check.php");
 		(/Detected IP : (.*)/)[0] if $_;
@@ -147,6 +158,7 @@ sub getextip {
 		$ua->env_proxy;
 		$ua->agent("Mozilla/5.0");
 		my $rs = $ua->get("http://ip-address.domaintools.com/myip.xml");
+		my $xml = "";
 		if ($rs->is_success) {
 			$xml = $rs->decoded_content;
 			}
@@ -156,6 +168,7 @@ sub getextip {
 		get("http://ip.arix.com/");
 		}; 
      
+	my $ip;
     chomp($ip = $_->()), $ip && return $ip for @getextip;
     }
 
@@ -231,7 +244,7 @@ sub mkpath {
 
 sub path2fn {
     my $path = shift;
-    my ($dir, $fn, $ext);
+    my ($dir, $fn, $ext, @x);
 
     @x = split(/\//, $path);
     $fn = pop @x;
