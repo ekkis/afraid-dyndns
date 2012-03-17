@@ -1,0 +1,4 @@
+AccountHash = # see README for how to get this value
+Notify = root@localhost # leave empty to suppress notifications
+CacheFile = /var/cache/afraid-dyndns/IP
+# LogFile = /var/log/afraid-dyndns

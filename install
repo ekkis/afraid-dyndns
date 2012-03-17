@@ -1,0 +1,21 @@
+#!/bin/sh
+
+DESTDIR=$1
+OS=`uname -s`
+
+if [ "$OS" = "Darwin" ]; then
+	install -pm 0755 afraid-dyndns /usr/bin/afraid-dyndns
+	perl -lne 's|/var/cache/afraid-dyndns/IP|/Library/Caches/afraid-dyndns-IP|; s|root\@localhost||; print;' conf > /etc/afraid-dyndns.conf
+	touch /Library/Caches/afraid-dyndns-IP
+	chown root plist
+	perl -lne 'print; chomp($h = qx/uname -n/), $h =~ s/\.local//, printf("\t\t<string>%s</string>\n", $h) if /--quiet/;' plist > /Library/LaunchDaemons/org.afraid.dyndns.plist
+	launchctl load /Library/LaunchDaemons/org.afraid.dyndns.plist
+else
+	install -Dpm 0755 afraid-dyndns ${DESTDIR}/usr/bin/afraid-dyndns
+	install -DCm 0644 cron ${DESTDIR}/etc/cron.d/afraid-dyndns
+	install -DCm 0644 conf ${DESTDIR}/etc/afraid-dyndns.conf
+	install -dpm 0755 ${DESTDIR}/var/cache/afraid-dyndns
+	touch ${DESTDIR}/var/cache/afraid-dyndns/IP
+fi
+
+echo "* Don't forget to configure the AccountHash (see README) *"

@@ -1,0 +1,74 @@
+SYNOPSIS
+
+    This utility implements a client for the afraid.org dynamic DNS service.
+    A cron job is set up to check whether the external IP address has
+    changed, and when it does, connects to afraid.org and updates the
+    DNS entries of all the domains of the given account.
+
+SUPPORTED OPERATING SYSTEMS
+
+   * Fedora
+   * CentOS
+   * RHEL
+   * OSX
+
+INSTALL
+
+    1. log in as root (needed to access config, cron and cache directories):
+        # su -
+    2. Download the tarball:
+        # cd /tmp
+        # wget ftp://arix.com/afraid-dyndns-x.x.tar.gz
+
+        on OSX, you can use:
+        # curl -O ftp://anon@arix.com/afraid-dyndns-x.x.tar.gz
+    3. Untar:
+        # tar xzvf afraid-dyndns-x.x.tgz
+    4. Install:
+        # cd afraid-dyndns-x.x
+        # ./install
+
+CONFIGURATION
+
+   To configure, edit the /etc/afraid-dyndns.conf file.
+
+   The AccountHash field refers to the SHA value assigned to your
+   afraid.org account.  To get it, log into afraid.org and visit:
+
+	   http://freedns.afraid.org/api/
+
+   then click on either of the "Available API Interfaces" links and take
+   the value of the "sha" parameter (it's a long string) from the url.
+
+   The Notify address (if present) will be sent e-mail whenever the
+   DNS is refreshed.  CacheFile is the file name where the external
+   IP address will be cached.
+
+   Additionally, the cron job checks the external IP address every 15
+   minutes.  To modify this, edit /etc/cron.d/afraid-dyndns - on OSX you'll
+   need to edit the file /Library/LaunchDaemons/org.afraid.dyndns.plist (and
+   reboot)
+
+   Unlink on Linux systems where all names on the account are refreshed with
+   the IP of the host, on OSX the default configuration only names matching
+   the host's name will be refreshed.  The assumption here is that Linux
+   hosts are likely to be used as servers (which may require multiple names
+   as in the case of a webserver hosting multiple domains), whereas OSX
+   hosts are likely to be used as clients e.g. laptops which we want
+   accessible via a domain name but which roam.
+
+	To change this behaviour on OSX, edit the plist, take out the
+    hostname parameter (after the --quiet) and reboot.
+
+SYNTAX
+
+   Call the script with --help
+
+LIMITATIONS
+
+   At present, only one account is supported.
+
+AUTHOR/SUPPORT
+
+   Erick Calder <e@arix.com> - For bugs, suggestions, etc. please
+   feel free to contact me.

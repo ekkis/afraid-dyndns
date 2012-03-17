@@ -1,0 +1,1 @@
+*/15 * * * * root /usr/bin/afraid-dyndns --quiet

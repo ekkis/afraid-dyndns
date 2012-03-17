@@ -1,0 +1,8 @@
+Revision history for afraid-dyndns
+
+1.1 Thu Oct 15 15:02:30 PDT 2009 - Erick Calder <e@arix.com>
+   - enhanced to allow refreshing a single host name
+   - modifications for running on OSX
+
+1.0 2009/09/18 02:32:01 - Erick Calder <e@arix.com>
+    - initial release

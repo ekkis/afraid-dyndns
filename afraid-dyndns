@@ -1,0 +1,258 @@
+#!/usr/bin/perl
+
+#
+#   afraid-dyndns - a Dynamic DNS client for the afraid.org free service
+#   Copyright (C) 2009 Erick Calder
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+$|++;
+$\ = $/;
+
+use LWP::Simple;
+use LWP::UserAgent;
+use XML::Simple;
+# use Data::Dumper;
+use Getopt::Long;
+
+Getopt::Long::Configure("no_ignore_case");
+$args{"debug|D"} = "Debug mode";
+$args{"quiet"} = "Suppresses normal output";
+$args{"help"} = "Display syntax";
+GetOptions(\%ARGV, keys %args);
+
+if ($ARGV{help}) {
+	print("Syntax: $0 [--quiet] [--debug|-D] [--help] [hostname]");
+	print("    quiet: supresses all output");
+	print("    debug: generates feedback on internal workings");
+	print("    help: displays syntax");
+	print("    hostname: indicates that only the specified name should be refreshed");
+	exit;
+	}
+
+# afraid.org listing of urls
+
+$afraid = "http://freedns.afraid.org/api/?action=getdyndns&sha=%s&style=xml";
+($VER = substr q$Revision: 2342 $, 10) =~ s/\s+$//;
+$CONF = "/etc/afraid-dyndns.conf";
+($ME = $0) =~ s|.*/||;
+$hostname = shift;
+
+# get working parameters
+
+for (readfile($CONF)) {
+	chomp; s/#.*//; s/^\s*//; s/\s*$//;
+	next if /^$/;
+	@_ = split /\s*=\s*/;
+	$ARGV{$_[0]} = $_[1];
+	debug("[$_[0]] = [$_[1]]");
+	}
+
+echo("-- $0 (Ver: $VER) --");
+echo("License: GPL");
+echo("Notifications: " . $ARGV{Notify} || "None");
+
+die "No AccountHash in configuration file - please see README for instructions. Done" unless $ARGV{AccountHash};
+$ARGV{CacheFile} ||= "/var/cache/afraid-dyndns/IP";
+
+# if config file indicates a log file, all output goes there
+
+if ($ARGV{LogFile} && !$ARGV{debug}) {
+	open(STDOUT, ">> $ARGV{LogFile}")
+        || die qq/Failed opening logfile [$ARGV{LogFile}]: "$!"/;
+	open(STDERR, ">&STDOUT") || die "Cannot dup stdout";
+	}
+
+#
+# get external and cached IP addresses
+#
+
+$extip = getextip();
+die "Failed fetching IP address!" unless $extip;
+$intip = readfile($ARGV{CacheFile});	# internal address (cached)
+chomp $intip;
+
+#
+# when these differ modify the DNS, cache the address and e-mail
+#
+
+if ($extip eq $intip) {
+	echo("No change in address!");
+} else {
+	echo("Address changed: $intip => $extip");
+
+	$xml = get(sprintf($afraid, $ARGV{AccountHash}));
+	die "Failed fetching update head!" unless $xml;
+	$o = XMLin($xml, ForceArray => ["item"]);
+	for (@{$o->{item}}) {
+		next if $hostname && $_->{host} !~ /$hostname/;
+		debug("- $_->{host}");
+		get($_->{url}) unless $ARGV{debug};
+		}
+	writefile($ARGV{CacheFile}, $extip);
+
+	if ($ARGV{Notify}) {
+		eval {
+			require MIME::Lite;
+			import MIME::Lite;
+		};
+		if ($@) {
+			local $_ = "Notifications cannot be made without MIME::Lite";
+			$_ .= " - to enable please have your system administrator";
+			$_ .= " install that perl module";
+			echo();
+			}
+		else {
+			$msg = MIME::Lite->new(
+				To => $ARGV{Notify},
+				Subject => "IP address change",
+				Data => "Dynamic DNS has been refreshed: $intip => $extip"
+				);
+			$msg->send();
+			}
+		}
+	}
+
+exit;
+
+sub getextip {
+	my $i = 0;
+	$getextip[$i++] = sub {
+		$_ = get("http://freedns.afraid.org:8080/dynamic/check.php");
+		(/Detected IP : (.*)/)[0] if $_;
+		};  
+	$getextip[$i++] = sub {
+		get("http://whatismyip.org/");
+		};  
+	$getextip[$i++] = sub {
+		my $xml = get("http://www.showmyip.com/xml");
+		return XMLin($xml)->{ip} if $xml;
+		};  
+	$getextip[$i++] = sub {
+		my $ua = LWP::UserAgent->new;
+		$ua->timeout(10);
+		$ua->env_proxy;
+		$ua->agent("Mozilla/5.0");
+		my $rs = $ua->get("http://ip-address.domaintools.com/myip.xml");
+		if ($rs->is_success) {
+			$xml = $rs->decoded_content;
+			}
+		return XMLin($xml)->{ip_address} if $xml;
+		}; 
+	$getextip[$i++] = sub {
+		get("http://ip.arix.com/");
+		}; 
+     
+    chomp($ip = $_->()) && return $ip for @getextip;
+    }
+
+#
+#   Syntax:
+#       readfile [file-name = $_]
+#       <scalar> = readfile [file-name = $_]
+#       <list> = readfile [file-name = $_]
+#   Synopsis:
+#       returns the contents of a given file.  if called in a void
+#       context, this function sets $_; if called in a scalar context
+#       the contents are returned as a single string with embedded
+#       newlines; and if called in a list context the content comes
+#       back as separate lines.
+#
+
+sub readfile {
+    my $f = shift || $_;
+    local $_ if defined wantarray();
+    -f $f || return;
+    open(F, $f) || warn($!) && return;
+    wantarray() && (@_ = <F>) || (local $/ = undef, $_ = <F>);
+    close(F);
+    wantarray() ? @_ : $_;
+    }
+
+#
+#   Syntax:
+#       writefile <file-name> [content = $_]
+#   Synopsis:
+#       writes a string to a file, returns success/failure
+#
+
+sub writefile($@) {
+    my $fn = shift;
+    local $_ = shift || $_ || return;
+
+    print ">> writefile(): $fn" if $::DEBUG;
+
+    mkpath(path2fn($fn));
+    open(OUT, "> $fn") || warn(qq|writefile("> $fn"): "$!"|) && return;
+    print OUT;
+    close(OUT) || return;
+    return 1;
+    }
+
+#
+#   could've used system("mkdir -p") but
+#   that won't work on Win32 systems
+#
+
+sub mkpath {
+    local $_ = shift;
+    my @d = split m(/);
+    my $d = "";
+    my $mkpath = 0;
+
+    for (@d) {
+        $d .= "$_/";
+        next if -d $d;  # skip if it already exists
+        print "- $d" if $::DEBUG > 1;
+        mkdir($d) || warn(qq/mkdir("$d"): "$!"/) && return;
+        $mkpath = 1;
+        }
+
+    return 1;
+    }
+
+#
+#   splits a path into directory, filename and extension
+#   e.g. ($dir, $fn, $ext) = path2fn($path)
+#
+
+sub path2fn {
+    my $path = shift;
+    my ($dir, $fn, $ext);
+
+    @x = split(/\//, $path);
+    $fn = pop @x;
+    $dir = join("/", @x);
+    @x = split(/\./, $fn);
+    if (@x > 1) {
+        $ext = pop @x;
+        $fn = join(".", @x);
+        }
+
+    return ($dir, $fn, $ext);
+    }
+
+#
+#	output functions
+#
+
+sub debug {
+	print shift if $ARGV{debug} && !$ARGV{quiet};
+	}
+
+sub echo {
+	print shift || $_ unless $ARGV{quiet};
+	}
