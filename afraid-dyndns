@@ -85,7 +85,7 @@ if ($ARGV{LogFile} && !$ARGV{debug}) {
 
 my $extip = getextip();
 die "Failed fetching IP address!" unless $extip;
-my $intip = readfile($ARGV{CacheFile});	# internal address (cached)
+my $intip = readfile($ARGV{CacheFile}) || "";	# internal address (cached)
 chomp $intip;
 
 #
