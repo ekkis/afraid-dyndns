@@ -150,23 +150,11 @@ sub getextip {
 		return XMLin($xml)->{ip} if $xml;
 		};  
 	$getextip[$i++] = sub {
-		my $ua = LWP::UserAgent->new;
-		$ua->timeout(10);
-		$ua->env_proxy;
-		$ua->agent("Mozilla/5.0");
-		my $rs = $ua->get("http://ip-address.domaintools.com/myip.xml");
-		my $xml = "";
-		if ($rs->is_success) {
-			$xml = $rs->decoded_content;
-			}
-		return XMLin($xml)->{ip_address} if $xml;
-		}; 
-	$getextip[$i++] = sub {
 		get("http://ip.arix.com/");
 		}; 
      
 	my $ip;
-    chomp($ip = $_->()), $ip && return $ip for @getextip;
+    chomp($ip = $_->() || ""), $ip && return $ip for @getextip;
     }
 
 #
