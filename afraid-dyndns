@@ -64,11 +64,7 @@ for (readfile($CONF)) {
 	chomp; s/#.*//; s/^\s*//; s/\s*$//;
 	next if /^$/;
 	@_ = split /\s*=\s*/;
-	if (defined $_[1]) {
-		$ARGV{$_[0]} = $_[1];
-	} else {
-		$ARGV{$_[0]} = "";
-		}
+	$ARGV{$_[0]} = $_[1] || "";
 	debug("[$_[0]] = [$ARGV{$_[0]}]");
 	}
 
