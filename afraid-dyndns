@@ -25,20 +25,24 @@ $|++;
 $\ = $/;
 
 use LWP::Simple;
-use LWP::UserAgent;
 use XML::Simple;
 # use Data::Dumper;
 use Getopt::Long;
+use IO::Socket::INET;
 
 Getopt::Long::Configure("no_ignore_case");
 my %args = ();
+$args{"local"} = "Use local IP";
+$args{"force"} = "Force IP update";
 $args{"debug|D"} = "Debug mode";
 $args{"quiet"} = "Suppresses normal output";
 $args{"help"} = "Display syntax";
 GetOptions(\%ARGV, keys %args);
 
 if ($ARGV{help}) {
-	print("Syntax: $0 [--quiet] [--debug|-D] [--help] [hostname]");
+	print("Syntax: $0 [--local] [--force] [--quiet] [--debug|-D] [--help] [hostname]");
+	print("    local: uses local IP instead of public");
+	print("    force: force IP update when no change detected");
 	print("    quiet: supresses all output");
 	print("    debug: generates feedback on internal workings");
 	print("    help: displays syntax");
@@ -60,8 +64,12 @@ for (readfile($CONF)) {
 	chomp; s/#.*//; s/^\s*//; s/\s*$//;
 	next if /^$/;
 	@_ = split /\s*=\s*/;
-	$ARGV{$_[0]} = $_[1];
-	debug("[$_[0]] = [$_[1]]");
+	if (defined $_[1]) {
+		$ARGV{$_[0]} = $_[1];
+	} else {
+		$ARGV{$_[0]} = "";
+		}
+	debug("[$_[0]] = [$ARGV{$_[0]}]");
 	}
 
 echo("-- $0 (Ver: $VER) --");
@@ -75,7 +83,7 @@ $ARGV{CacheFile} ||= "/var/cache/afraid-dyndns/IP";
 
 if ($ARGV{LogFile} && !$ARGV{debug}) {
 	open(STDOUT, ">> $ARGV{LogFile}")
-        || die qq/Failed opening logfile [$ARGV{LogFile}]: "$!"/;
+		|| die qq/Failed opening logfile [$ARGV{LogFile}]: "$!"/;
 	open(STDERR, ">&STDOUT") || die "Cannot dup stdout";
 	}
 
@@ -83,8 +91,14 @@ if ($ARGV{LogFile} && !$ARGV{debug}) {
 # get external and cached IP addresses
 #
 
-my $extip = getextip();
-die "Failed fetching IP address!" unless $extip;
+my $extip = "";
+if ($ARGV{local}) {
+	$extip = getlocalip();
+} else {
+	$extip = getextip();
+	}
+die "Failed fetching IP address!" unless (length $extip);
+
 my $intip = readfile($ARGV{CacheFile}) || "";	# internal address (cached)
 chomp $intip;
 
@@ -92,7 +106,7 @@ chomp $intip;
 # when these differ modify the DNS, cache the address and e-mail
 #
 
-if ($extip eq $intip) {
+if ($extip eq $intip && !$ARGV{force}) {
 	echo("No change in address!");
 } else {
 	echo("Address changed: $intip => $extip");
@@ -103,7 +117,11 @@ if ($extip eq $intip) {
 	for (@{$o->{item}}) {
 		next if $hostname && $_->{host} !~ /$hostname/;
 		debug("- $_->{host}");
-		get($_->{url}) unless $ARGV{debug};
+		if ($ARGV{local}) {
+			get($_->{url} . "&address=" . $extip) unless $ARGV{debug};
+		} else {
+			get($_->{url}) unless $ARGV{debug};
+			}
 		}
 	&writefile($ARGV{CacheFile}, $extip);
 
@@ -133,9 +151,23 @@ exit;
 
 #
 #   Synopsis:
+#       queries freedns.afraid.org on port 80, then uses the
+#       local IP used to make that connection (eth0, em1, en0 etc.)
+#
+
+sub getlocalip {
+	my $sock = IO::Socket::INET->new(
+		PeerAddr=> "freedns.afraid.org",
+		PeerPort=> 80,
+		Proto   => "tcp");
+	return $sock->sockhost;
+}
+
+#
+#   Synopsis:
 #       queries a list of IP providers in order, returning
-#		a value from the first available.  The value returned
-#		is the system's external IP address
+#       a value from the first available.  The value returned
+#       is the system's external IP address
 #
 
 sub getextip {
@@ -146,16 +178,15 @@ sub getextip {
 		(/Detected IP : (.*)/)[0] if $_;
 		};  
 	$getextip[$i++] = sub {
-		my $xml = get("http://www.showmyip.com/xml");
-		return XMLin($xml)->{ip} if $xml;
-		};  
+		get("http://icanhazip.com/");
+		};
 	$getextip[$i++] = sub {
 		get("http://ip.arix.com/");
 		}; 
-     
+	 
 	my $ip;
-    chomp($ip = $_->() || ""), $ip && return $ip for @getextip;
-    }
+	chomp($ip = $_->() || ""), $ip && return $ip for @getextip;
+	}
 
 #
 #   Syntax:
@@ -171,14 +202,14 @@ sub getextip {
 #
 
 sub readfile {
-    my $f = shift || $_;
-    local $_ if defined wantarray();
-    -f $f || return;
-    open(F, $f) || warn($!) && return;
-    wantarray() && (@_ = <F>) || (local $/ = undef, $_ = <F>);
-    close(F);
-    wantarray() ? @_ : $_;
-    }
+	my $f = shift || $_;
+	local $_ if defined wantarray();
+	-f $f || return;
+	open(F, $f) || warn($!) && return;
+	wantarray() && (@_ = <F>) || (local $/ = undef, $_ = <F>);
+	close(F);
+	wantarray() ? @_ : $_;
+	}
 
 #
 #   Syntax:
@@ -188,17 +219,17 @@ sub readfile {
 #
 
 sub writefile($@) {
-    my $fn = shift;
-    local $_ = shift || $_ || return;
+	my $fn = shift;
+	local $_ = shift || $_ || return;
 
-    print ">> writefile(): $fn" if $::DEBUG;
+	print ">> writefile(): $fn" if $::DEBUG;
 
-    mkpath(path2fn($fn));
-    open(OUT, "> $fn") || warn(qq|writefile("> $fn"): "$!"|) && return;
-    print OUT;
-    close(OUT) || return;
-    return 1;
-    }
+	mkpath(path2fn($fn));
+	open(OUT, "> $fn") || warn(qq|writefile("> $fn"): "$!"|) && return;
+	print OUT;
+	close(OUT) || return;
+	return 1;
+	}
 
 #
 #   could've used system("mkdir -p") but
@@ -206,21 +237,21 @@ sub writefile($@) {
 #
 
 sub mkpath {
-    local $_ = shift;
-    my @d = split m(/);
-    my $d = "";
-    my $mkpath = 0;
+	local $_ = shift;
+	my @d = split m(/);
+	my $d = "";
+	my $mkpath = 0;
 
-    for (@d) {
-        $d .= "$_/";
-        next if -d $d;  # skip if it already exists
-        print "- $d" if $::DEBUG > 1;
-        mkdir($d) || warn(qq/mkdir("$d"): "$!"/) && return;
-        $mkpath = 1;
-        }
+	for (@d) {
+		$d .= "$_/";
+		next if -d $d;  # skip if it already exists
+		print "- $d" if $::DEBUG > 1;
+		mkdir($d) || warn(qq/mkdir("$d"): "$!"/) && return;
+		$mkpath = 1;
+		}
 
-    return 1;
-    }
+	return 1;
+	}
 
 #
 #   splits a path into directory, filename and extension
@@ -228,20 +259,20 @@ sub mkpath {
 #
 
 sub path2fn {
-    my $path = shift;
-    my ($dir, $fn, $ext, @x);
+	my $path = shift;
+	my ($dir, $fn, $ext, @x);
 
-    @x = split(/\//, $path);
-    $fn = pop @x;
-    $dir = join("/", @x);
-    @x = split(/\./, $fn);
-    if (@x > 1) {
-        $ext = pop @x;
-        $fn = join(".", @x);
-        }
+	@x = split(/\//, $path);
+	$fn = pop @x;
+	$dir = join("/", @x);
+	@x = split(/\./, $fn);
+	if (@x > 1) {
+		$ext = pop @x;
+		$fn = join(".", @x);
+		}
 
-    return ($dir, $fn, $ext);
-    }
+	return ($dir, $fn, $ext);
+	}
 
 #
 #	output functions
